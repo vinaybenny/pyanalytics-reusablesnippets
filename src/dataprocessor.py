@@ -13,13 +13,13 @@ from sklearn.preprocessing import LabelEncoder;
 def splitter(dataset, target, eval_size):    
     kf = StratifiedKFold(dataset[target], round(1./eval_size));    
     return kf;
-    
-def convert_categ_to_binary(dataframe):
+   
+# Convert categorical columns into one-hot encoding
+def binarizer(dataframe):
     # Find all categorical columns from the dataframe
     all_cols = dataframe.columns;
     num_cols = dataframe._get_numeric_data().columns;
-    cat_cols = list(set(all_cols) - set(num_cols));
-          
+    cat_cols = list(set(all_cols) - set(num_cols));          
         
     for col in cat_cols:
         one_hot = get_dummies(dataframe[col], prefix=col);
@@ -27,6 +27,23 @@ def convert_categ_to_binary(dataframe):
         dataframe = dataframe.join(one_hot);
 
     return dataframe;
+    
+    
+# Convert categorical variables into numeric labels.
+def labelizer(dataframe):
+    # Find all categorical columns from the dataframe
+    all_cols = dataframe.columns;
+    num_cols = dataframe._get_numeric_data().columns;
+    cat_cols = list(set(all_cols) - set(num_cols));    
+    
+    output = dataframe.copy();
+        
+    for col in cat_cols:
+        lblenc = LabelEncoder(); 
+        lblenc.fit(dataframe[col]);
+        output[col] = lblenc.transform(dataframe[col]);
+    
+    return output;
     
     
 if __name__ == "__main__":
@@ -49,7 +66,7 @@ if __name__ == "__main__":
     y = dataset.loc[:, ycol];
     
     # Convert all categorical covariates into one-hot encoding.
-    X = convert_categ_to_binary(X);
+    X = binarizer(X);
     
     # Get first iteration of the kfold indices, use it for the train-validation split
     # Other iterations may be used later    
