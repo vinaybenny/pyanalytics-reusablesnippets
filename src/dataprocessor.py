@@ -59,14 +59,14 @@ if __name__ == "__main__":
     if len(irrelevant_cols) > 0:
         dataset = dataset.drop(irrelevant_cols, axis=1);
     
-    # Drop NaNs from dataset or impute it.
+        
     dataset = dataset.dropna();    
       
-    # Split labels and covariates into different dataframes.r
+    # Split labels and covariates into different dataframes.
     y = dataset.loc[:, ycol];
     
     # Convert all categorical covariates into one-hot encoding.
-    X = binarizer(X);
+    X = binarizer(dataset);
     
     # Get first iteration of the kfold indices, use it for the train-validation split
     # Other iterations may be used later    
