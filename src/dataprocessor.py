@@ -135,8 +135,10 @@ if __name__ == "__main__":
     # Other iterations may be used later    
     kf = splitter(y, validation_size);
     train_indices, valid_indices = next(iter(kf));
-    Xbin_train, y_train = Xbin.loc[train_indices], y.loc[train_indices];
-    Xbin_valid, y_valid = Xbin.loc[valid_indices], y.loc[valid_indices];
-    Xlab_train, y_train = Xlab.loc[train_indices], y.loc[train_indices];
-    Xlab_valid, y_valid = Xlab.loc[valid_indices], y.loc[valid_indices];
+    Xbin_train, y_train = Xbin.iloc[train_indices], y.iloc[train_indices];
+    Xbin_valid, y_valid = Xbin.iloc[valid_indices], y.iloc[valid_indices];
+    Xlab_train, y_train = Xlab.iloc[train_indices], y.iloc[train_indices];
+    Xlab_valid, y_valid = Xlab.iloc[valid_indices], y.iloc[valid_indices];
+    
+    
     
