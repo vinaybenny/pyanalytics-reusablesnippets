@@ -1,14 +1,17 @@
 import os;
-os.chdir("/home/vinay/Documents/code/ml_template/src");
+os.chdir("C:\\Users\\vinay.benny\\Documents\\Kaggle\\Allstate\\src");
 
 import numpy as np;
-from sklearn.cross_validation import StratifiedKFold;
-from sklearn.cross_validation import KFold;
+import pandas as pd;
+from sklearn.model_selection import StratifiedKFold;
+from sklearn.model_selection import KFold;
 from pandas import read_csv, get_dummies;
 from sklearn.preprocessing import LabelEncoder;
 import matplotlib.mlab as mlab;
 import matplotlib.pyplot as plt;
 plt.style.use('ggplot');
+from pylab import rcParams;
+rcParams['figure.figsize'] = 20, 10
 
 
 # Returns the k-fold split iterator, each of which can be 
@@ -39,6 +42,11 @@ def labelizer(dataframe, cat_cols):
     
     return output;
     
+def descstats(dataset, ycol_cat):
+    dataset_prestats = dataset.describe(); # Overall statistics
+    dataset_grouped_prestats = dataset.groupby(ycol_cat).describe(); # statistics grouped on target variable categories    
+    return dataset_prestats, dataset_grouped_prestats;
+    
 # Plot histogram of the series and save as a ".png" file.
 def plotdetailedhistogram(dataset, x, y):
     num_bins = 50;
@@ -57,7 +65,12 @@ def plotdetailedhistogram(dataset, x, y):
     ax0.set_xlabel(x);
     ax0.set_ylabel('Count');    
     colorlist=['green', 'black', 'brown', 'yellow', 'orange'];
-    x_multi = [np.array(dataset.groupby(y)[x].get_group(i)) for i in [0, dataset.groupby(y)[x].ngroups-1]];
+    
+    x_multi=[];
+    for name, group in dataset.groupby(y)[x]:
+        x_multi.append( np.array(dataset.groupby(y)[x].get_group(name)) );
+        
+    #x_multi = [np.array(dataset.groupby(y)[x].get_group(i)) for i in [0, dataset.groupby(y)[x].ngroups-1]];
     n, bins, patches = ax1.hist(x_multi, num_bins,  normed=True, histtype='bar', alpha=0.6, color=colorlist[0:dataset.groupby(y)[x].ngroups]);
     
     # Loop through the data for each target class
@@ -76,51 +89,61 @@ if __name__ == "__main__":
     
     # Define dataset level variables here.
     full_dataset = read_csv("../data/train.csv");
-    idcol = "PassengerId";
-    ycol = "Survived";    
-    validation_size=0.1;
-    irrelevant_cols=list(["Name"
-                        , "Ticket"
-                        , "Cabin"
-                        ]);
+    idcol = "Id";
+    ycol = "loss";    
+    validation_size=0.2;
+    irrelevant_cols=list([]);
+    prob_type = 1; # 0 for binary classification, 1 for regression
+    quantiles=4; # variable for target column quantiles in case target variable is continuous(for grouped desriptive statistics creation)
+    
                         
-    #########################################################################################
-    # Data Cleaning and Transformations
-    # Add new variables
-    #<INSERT CODE HERE>    
+    #########################################################################################  
+    # Find and add columns with zero std deviation to irrelevant columns- These add no information.                    
+    irrelevant_cols = irrelevant_cols + (full_dataset.std(axis=0, numeric_only=True) < 0.5)[(full_dataset.std(axis=0) == 0.0)].index.tolist();
     
     # Drop columns that are not to be used at all
     if len(irrelevant_cols) > 0:
-        dataset = full_dataset.drop(irrelevant_cols, axis=1);                    
-                        
-    # Drop columns with zero std deviation- These add no information.                    
-    irrelevant_cols = irrelevant_cols + (dataset.std(axis=0, numeric_only=True) < 0.5)[(dataset.std(axis=0) == 0.0)].index.tolist();                    
-    
-    # Classify attributes into numeric and categorical
+        dataset = full_dataset.drop(irrelevant_cols, axis=1);
+    else:
+        dataset=full_dataset;
+
+    # Classify remaining attributes into numeric and categorical
     all_cols = dataset.columns;
     numeric_cols = list(dataset._get_numeric_data().columns);
     cat_cols = list(set(all_cols) - set(numeric_cols));  
     if idcol in numeric_cols:
         numeric_cols.remove(idcol);
     elif idcol in cat_cols:
-        cat_cols.remove(idcol);    
-                    
-    # Raw dataset summaries.
-    dataset_prestats = dataset.groupby(ycol).describe();    
+        cat_cols.remove(idcol);                                             
+
+    # Set outcome variable to categorical if problem is classification, else to float64
+    if prob_type == 0:
+        dataset[ycol] = dataset[ycol].astype("category");
+        dataset[ycol + "_cat"] = dataset[ycol];
+    elif prob_type==1:
+        dataset[ycol] = dataset[ycol].astype("float64");  
+        dataset[ycol + "_cat"] = pd.qcut(dataset[ycol], quantiles); # Quantile based cuts for target column   
+        ycolcat = ycol + "_cat" # Column Name for categorical representation of target column
     
+    # Descriptive Stats for numerical variables in pre-transformation dataset    
+    dataset_prestats, dataset_grouped_prestats = descstats(dataset, ycolcat);
+    
+    # Data Cleaning and Transformations
+    # Add new variables
+    #<INSERT CODE HERE>    
     # Treat missing values   
     dataset = dataset.dropna();
     
     # Post-missing value treatment dataset summaries.
-    dataset_poststats = dataset.groupby(ycol).describe();
+    dataset_poststats, dataset_grouped_poststats = descstats(dataset, ycolcat);
     
-    #########################################################################################       
+      
     
     # Plot detailed histograms of variables    
     for col in numeric_cols:
-        plotdetailedhistogram(dataset, col, ycol);
+        plotdetailedhistogram(dataset, col, ycolcat );
     
-    
+    #########################################################################################     
     # Split labels and covariates into different dataframes.
     y = dataset.loc[:, ycol];
     X = dataset.drop(ycol, axis=1);
