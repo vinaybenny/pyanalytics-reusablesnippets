@@ -9,17 +9,12 @@ from pandas import read_csv, get_dummies;
 from sklearn.preprocessing import LabelEncoder;
 import matplotlib.mlab as mlab;
 import matplotlib.pyplot as plt;
+import matplotlib.cm as cm;
 plt.style.use('ggplot');
 from pylab import rcParams;
 rcParams['figure.figsize'] = 20, 10
 
 
-# Returns the k-fold split iterator, each of which can be 
-# used to obtain different splits into training-validation.
-def splitter(target, eval_size):    
-    kf = StratifiedKFold(target, round(1./eval_size));    
-    return kf;
-   
 # Convert categorical columns into one-hot encoding
 def binarizer(dataframe, cat_cols):
             
@@ -64,40 +59,51 @@ def plotdetailedhistogram(dataset, x, y):
     ax0.axvline(mean, color='black', linestyle='dashed', linewidth=2);
     ax0.set_xlabel(x);
     ax0.set_ylabel('Count');    
-    colorlist=['green', 'black', 'brown', 'yellow', 'orange'];
+    
+    # Now plot the histogram of column x specific to each level in target column y.
+    # First, get the data grouped according to 
+    grouped_data=dataset.groupby(y)[x];
+    colorlist=cm.Spectral([float(var) / grouped_data.ngroups for var in range(grouped_data.ngroups)])
     
     x_multi=[];
-    for name, group in dataset.groupby(y)[x]:
-        x_multi.append( np.array(dataset.groupby(y)[x].get_group(name)) );
-        
-    #x_multi = [np.array(dataset.groupby(y)[x].get_group(i)) for i in [0, dataset.groupby(y)[x].ngroups-1]];
-    n, bins, patches = ax1.hist(x_multi, num_bins,  normed=True, histtype='bar', alpha=0.6, color=colorlist[0:dataset.groupby(y)[x].ngroups]);
+    x_multi_name=[];
+    for name, group in grouped_data:
+        x_multi.append( np.array(grouped_data.get_group(name)) ); 
+        x_multi_name.append(name);
+    n, bins, patches = ax1.hist(x_multi, num_bins,  normed=True, histtype='bar', alpha=1.0, 
+                                label=x_multi_name, color=colorlist[0:grouped_data.ngroups]);
     
+    # Now draw a distribution curve for x column for each level of column y.
     # Loop through the data for each target class
-    for i in range(0, dataset.groupby(y)[x].ngroups):
-        normfit = mlab.normpdf(bins, dataset.groupby(y)[x].mean()[i], dataset.groupby(y)[x].std()[i] );
+    for i in range(0, grouped_data.ngroups):
+        normfit = mlab.normpdf(bins, grouped_data.mean()[i], grouped_data.std()[i] );
         ax1.plot(bins, normfit, "r--", color=colorlist[i]); 
-        ax1.axvline(dataset.groupby(y)[x].mean()[i], color=colorlist[i], linestyle='dashed', linewidth=2);
+        ax1.axvline(grouped_data.mean()[i], color=colorlist[i], linestyle='dashed', linewidth=2);
+        
     ax1.set_xlabel(x);
     ax1.set_ylabel('Count');
-    plt.savefig("../output/plots/hist_" + x + ".png");        
+    ax1.legend();
+    plt.savefig("../output/plots/hist_" + x + ".png", dpi=500);        
     plt.close();
     
 
 #############################################################################################    
 if __name__ == "__main__":
     
+    print 'Starting execution...';
+    print 'Reading training data...'    
     # Define dataset level variables here.
     full_dataset = read_csv("../data/train.csv");
-    idcol = "Id";
+    idcol = "id";
     ycol = "loss";    
     validation_size=0.2;
     irrelevant_cols=list([]);
     prob_type = 1; # 0 for binary classification, 1 for regression
     quantiles=4; # variable for target column quantiles in case target variable is continuous(for grouped desriptive statistics creation)
-    
+    print 'Read completed.';
                         
     #########################################################################################  
+    print 'Dropping irrelevant and useless columns...';
     # Find and add columns with zero std deviation to irrelevant columns- These add no information.                    
     irrelevant_cols = irrelevant_cols + (full_dataset.std(axis=0, numeric_only=True) < 0.5)[(full_dataset.std(axis=0) == 0.0)].index.tolist();
     
@@ -125,7 +131,8 @@ if __name__ == "__main__":
         dataset[ycol + "_cat"] = pd.qcut(dataset[ycol], quantiles); # Quantile based cuts for target column   
         ycolcat = ycol + "_cat" # Column Name for categorical representation of target column
     
-    # Descriptive Stats for numerical variables in pre-transformation dataset    
+    # Descriptive Stats for numerical variables in pre-transformation dataset
+    print 'Collecting pre-transformation variable stats...'    ;
     dataset_prestats, dataset_grouped_prestats = descstats(dataset, ycolcat);
     
     # Data Cleaning and Transformations
@@ -135,33 +142,43 @@ if __name__ == "__main__":
     dataset = dataset.dropna();
     
     # Post-missing value treatment dataset summaries.
+    print 'Collecting post-transformation variable stats...' ;
     dataset_poststats, dataset_grouped_poststats = descstats(dataset, ycolcat);
     
       
     
     # Plot detailed histograms of variables    
+    print 'Creating Histograms for numeric variables...';
     for col in numeric_cols:
-        plotdetailedhistogram(dataset, col, ycolcat );
+        if not(col == ycol):
+            plotdetailedhistogram(dataset, col, ycolcat );
     
     #########################################################################################     
     # Split labels and covariates into different dataframes.
+    print 'Splitting covariates and target...';
     y = dataset.loc[:, ycol];
-    X = dataset.drop(ycol, axis=1);
+    y_cat = dataset.loc[:, ycolcat];
+    X = dataset.drop([ycol,ycolcat], axis=1);
      
-    # Convert all categorical covariates into one-hot encoding or labels. Create both of later use.
+    # Convert all categorical covariates into one-hot encoding or labels. Create both for later use.
+    print 'Saving One-Hot encoded and labelised datasets...';
     Xbin = binarizer(X, cat_cols);
     Xlab = labelizer(X, cat_cols);
     
     ##########################################################################################
     
     # Get first iteration of the k-fold indices, use it for the train-validation split
-    # Other iterations may be used later    
-    kf = splitter(y, validation_size);
-    train_indices, valid_indices = next(iter(kf));
+    # Other iterations may be used later  
+    print 'Splitting training data into training and validation sets...';
+    skf = StratifiedKFold(n_splits=int(1./validation_size), shuffle=True);
+    skf.get_n_splits(X, y);
+    
+    train_indices, valid_indices = next(iter(skf.split(X, y_cat)));
     Xbin_train, y_train = Xbin.iloc[train_indices], y.iloc[train_indices];
     Xbin_valid, y_valid = Xbin.iloc[valid_indices], y.iloc[valid_indices];
     Xlab_train, y_train = Xlab.iloc[train_indices], y.iloc[train_indices];
     Xlab_valid, y_valid = Xlab.iloc[valid_indices], y.iloc[valid_indices];
     
+    print 'Completed data processing.';
     
     
