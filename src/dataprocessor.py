@@ -1,10 +1,8 @@
 import os;
-os.chdir("C:\\Users\\vinay.benny\\Documents\\Kaggle\\Allstate\\src");
-
 import numpy as np;
 import pandas as pd;
+from collections import defaultdict;
 from sklearn.model_selection import StratifiedKFold;
-from sklearn.model_selection import KFold;
 from pandas import read_csv, get_dummies;
 from sklearn.preprocessing import LabelEncoder;
 import matplotlib.mlab as mlab;
@@ -18,24 +16,21 @@ rcParams['figure.figsize'] = 20, 10
 # Convert categorical columns into one-hot encoding
 def binarizer(dataframe, cat_cols):
             
-    for col in cat_cols:
+    for col in cat_cols:        
         one_hot = get_dummies(dataframe[col], prefix=col);
         dataframe = dataframe.drop(col, axis=1);
         dataframe = dataframe.join(one_hot);
-
+        
     return dataframe;    
     
 # Convert categorical variables into numeric labels.
 def labelizer(dataframe, cat_cols):
+    #Create a dictionary of label encoder object for each column in the input dataset
+    lblenc_dict = defaultdict(LabelEncoder);
     
-    output = dataframe.copy();
-        
-    for col in cat_cols:
-        lblenc = LabelEncoder(); 
-        lblenc.fit(dataframe[col]);
-        output[col] = lblenc.transform(dataframe[col]);
-    
-    return output;
+    # Encoding each categorical variable
+    dataframe[cat_cols].apply(lambda x: lblenc_dict[x.name].fit(x)); 
+    return lblenc_dict;
     
 def descstats(dataset, ycol_cat):
     dataset_prestats = dataset.describe(); # Overall statistics
@@ -89,95 +84,116 @@ def plotdetailedhistogram(dataset, x, y):
 
 #############################################################################################    
 if __name__ == "__main__":
-    
+    os.chdir("C:\\Users\\vinay.benny\\Documents\\Kaggle\\Allstate\\src");
     print 'Starting execution...';
-    print 'Reading training data...'    
-    # Define dataset level variables here.
+    print 'Reading training and test data...'    
+    
+    # Define data processor level variables here.
     full_dataset = read_csv("../data/train.csv");
+    test_dataset = read_csv("../data/test.csv");
     idcol = "id";
     ycol = "loss";    
     validation_size=0.2;
     irrelevant_cols=list([]);
-    prob_type = 1; # 0 for binary classification, 1 for regression
+    prob_type = 2; # 0 for binary classification, 1 for multinomial classification, 2 for regression
     quantiles=4; # variable for target column quantiles in case target variable is continuous(for grouped desriptive statistics creation)
     print 'Read completed.';
                         
-    #########################################################################################  
-    print 'Dropping irrelevant and useless columns...';
-    # Find and add columns with zero std deviation to irrelevant columns- These add no information.                    
-    irrelevant_cols = irrelevant_cols + (full_dataset.std(axis=0, numeric_only=True) < 0.5)[(full_dataset.std(axis=0) == 0.0)].index.tolist();
-    
-    # Drop columns that are not to be used at all
-    if len(irrelevant_cols) > 0:
-        dataset = full_dataset.drop(irrelevant_cols, axis=1);
-    else:
-        dataset=full_dataset;
-
-    # Classify remaining attributes into numeric and categorical
-    all_cols = dataset.columns;
-    numeric_cols = list(dataset._get_numeric_data().columns);
-    cat_cols = list(set(all_cols) - set(numeric_cols));  
-    if idcol in numeric_cols:
-        numeric_cols.remove(idcol);
-    elif idcol in cat_cols:
-        cat_cols.remove(idcol);                                             
-
-    # Set outcome variable to categorical if problem is classification, else to float64
-    if prob_type == 0:
-        dataset[ycol] = dataset[ycol].astype("category");
-        dataset[ycol + "_cat"] = dataset[ycol];
-    elif prob_type==1:
-        dataset[ycol] = dataset[ycol].astype("float64");  
-        dataset[ycol + "_cat"] = pd.qcut(dataset[ycol], quantiles); # Quantile based cuts for target column   
-        ycolcat = ycol + "_cat" # Column Name for categorical representation of target column
-    
-    # Descriptive Stats for numerical variables in pre-transformation dataset
-    print 'Collecting pre-transformation variable stats...'    ;
-    dataset_prestats, dataset_grouped_prestats = descstats(dataset, ycolcat);
-    
-    # Data Cleaning and Transformations
-    # Add new variables
-    #<INSERT CODE HERE>    
-    # Treat missing values   
-    dataset = dataset.dropna();
-    
-    # Post-missing value treatment dataset summaries.
-    print 'Collecting post-transformation variable stats...' ;
-    dataset_poststats, dataset_grouped_poststats = descstats(dataset, ycolcat);
-    
-      
-    
-    # Plot detailed histograms of variables    
-    print 'Creating Histograms for numeric variables...';
-    for col in numeric_cols:
-        if not(col == ycol):
-            plotdetailedhistogram(dataset, col, ycolcat );
-    
     #########################################################################################     
-    # Split labels and covariates into different dataframes.
+    # Split train dataset labels and covariates into different dataframes.
     print 'Splitting covariates and target...';
-    y = dataset.loc[:, ycol];
-    y_cat = dataset.loc[:, ycolcat];
-    X = dataset.drop([ycol,ycolcat], axis=1);
-     
-    # Convert all categorical covariates into one-hot encoding or labels. Create both for later use.
-    print 'Saving One-Hot encoded and labelised datasets...';
-    Xbin = binarizer(X, cat_cols);
-    Xlab = labelizer(X, cat_cols);
+    y = full_dataset.loc[:, ycol];    
+    X = full_dataset.drop([ycol], axis=1);
     
-    ##########################################################################################
-    
+    # Set outcome variable to categorical if problem is classification, else to float64
+    if prob_type == 0 or prob_type == 1:
+        y = y.astype("category");
+        ycat = y;        
+    elif prob_type==2:
+        y = y.astype("float64");  
+        ycat = pd.qcut(y, quantiles); # Quantile based cuts for target column  
+        
+    ##########################################################################################    
     # Get first iteration of the k-fold indices, use it for the train-validation split
     # Other iterations may be used later  
     print 'Splitting training data into training and validation sets...';
     skf = StratifiedKFold(n_splits=int(1./validation_size), shuffle=True);
     skf.get_n_splits(X, y);
     
-    train_indices, valid_indices = next(iter(skf.split(X, y_cat)));
-    Xbin_train, y_train = Xbin.iloc[train_indices], y.iloc[train_indices];
-    Xbin_valid, y_valid = Xbin.iloc[valid_indices], y.iloc[valid_indices];
-    Xlab_train, y_train = Xlab.iloc[train_indices], y.iloc[train_indices];
-    Xlab_valid, y_valid = Xlab.iloc[valid_indices], y.iloc[valid_indices];
+    train_indices, valid_indices = next(iter(skf.split(X, ycat)));
+    X_train, y_train = X.iloc[train_indices], y.iloc[train_indices];
+    X_valid, y_valid = X.iloc[valid_indices], y.iloc[valid_indices];
+    X_test = test_dataset;
+    
+    #########################################################################################  
+    # DATA CLEANING AND TRANSFORMATION, DESCRIPTIVE STATS
+    print 'Applying cleaning rules and data transformations...';    
+    # Treat missing values   
+    X_train = X_train.dropna();
+    X_valid = X_valid.dropna();
+    
+    # Combine train, valid and test covariates to create a consolidated covariate set
+    X_train=X_train.join(pd.Series('TRAIN', index=X_train.index, name = 'rowtype'));
+    X_valid=X_valid.join(pd.Series('VALID', index=X_valid.index, name = 'rowtype'));
+    X_test=X_test.join(pd.Series('TEST', index=X_test.index, name = 'rowtype'));  
+    
+    covariates = pd.concat([X_train, X_valid, X_test], axis=0, ignore_index=True); 
+    # If id column does not exist, create one.    
+    if (idcol is None) or ( len(idcol) == 0 ):
+        idcol = 'id';
+        covariates=covariates.join(pd.Series( range(1, len(covariates) + 1,1), index=covariates.index, name = idcol ));
+    
+    # Find and add columns with zero std deviation to irrelevant columns- These add no information.                    
+    irrelevant_cols = irrelevant_cols + (covariates.std(axis=0, numeric_only=True) < 0.5)[(covariates.std(axis=0) == 0.0)].index.tolist();
+    
+    # Data Cleaning and Transformations
+    # Add new variables
+    #<INSERT CODE HERE>
+       
+    # Classify attributes into numeric and categorical
+    all_cols = list( set(covariates.columns) - set(['rowtype']) - set(idcol) );
+    numeric_cols = list( set(covariates._get_numeric_data().columns) - set(irrelevant_cols)  );
+    cat_cols = list( set(all_cols) - set(numeric_cols) - set(irrelevant_cols) );
+    if idcol in numeric_cols:
+        numeric_cols.remove(idcol);
+    elif idcol in cat_cols:
+        cat_cols.remove(idcol);                                             
+    
+    # Drop columns that are not to be used at all
+    if len(irrelevant_cols) > 0:
+        covariates = covariates.drop(irrelevant_cols, axis=1);
+    
+    # Create a label encoder for all categorical covariates for later use.
+    print 'Applying labelizer and binarizer for categorical columns...';
+    # Apply binarizer to dataset for a one-hot encoding of dataset
+    lblenc_dict = labelizer(covariates, cat_cols); 
+    # Apply labelizer to the categorical columns in the dataset
+    covariates = covariates[cat_cols].apply(lambda x: lblenc_dict[x.name].transform(x)).join(covariates[covariates.columns.difference(cat_cols)]);    
+    covariates_bin = binarizer(covariates, cat_cols);
+    
+    
+    # Create train, test and valid datasets for label and binary formats
+    Xlab_train = covariates.loc[covariates['rowtype'] == "TRAIN"].drop([idcol, "rowtype"], axis=1);
+    Xlab_valid = covariates.loc[covariates['rowtype'] == "VALID"].drop([idcol, "rowtype"], axis=1);
+    Xlab_test = covariates.loc[covariates['rowtype'] == "TEST"].drop([idcol, "rowtype"], axis=1);
+    Xbin_train = covariates_bin.loc[covariates_bin['rowtype'] == "TRAIN"].drop([idcol, "rowtype"], axis=1);
+    Xbin_valid = covariates_bin.loc[covariates_bin['rowtype'] == "VALID"].drop([idcol, "rowtype"], axis=1);
+    Xbin_test = covariates_bin.loc[covariates_bin['rowtype'] == "TEST"].drop([idcol, "rowtype"], axis=1);    
+    
+
+    # Descriptive Stats for numerical variables in pre-transformation dataset
+    print 'Collecting pre-transformation variable stats...'    ;
+    dataset_prestats, dataset_grouped_prestats = descstats(Xlab_train.join(ycat), ycat.name ); 
+    
+    # Post-missing value treatment dataset summaries.
+    print 'Collecting post-transformation variable stats...' ;
+    dataset_poststats, dataset_grouped_poststats = descstats(Xlab_train.join(ycat), ycat.name);  
+    
+    # Plot detailed histograms of variables    
+    print 'Creating Histograms for numeric variables...';
+    for col in numeric_cols:
+        if not(col == ycol):
+            plotdetailedhistogram(Xlab_train.join(ycat), col, ycat.name );  
     
     print 'Completed data processing.';
     
