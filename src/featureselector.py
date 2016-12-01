@@ -9,9 +9,9 @@ pcacomp = 100;    # Number of PCA components to pick
 skbcomp = 5;    # Number of best original features to retain.
 
 # Select which input dataset to use- binarized or labelled.
-input_traindata = Xbin_train;
-input_validdata = Xbin_valid;
-input_testdata = Xbin_test;
+input_traindata = X_train;
+input_validdata = X_valid;
+input_testdata = X_test;
 
 ##################################################################################
 
@@ -41,3 +41,6 @@ output_validdata = DataFrame(combined_features.transform(input_validdata));
 output_validdata.columns = selected_features;
 output_testdata = DataFrame(combined_features.transform(input_testdata));
 output_testdata.columns = selected_features;
+output_traindata.to_pickle("../output/train_pickle.pkl");
+output_validdata.to_pickle("../output/valid_pickle.pkl");
+output_testdata.to_pickle("../output/test_pickle.pkl");

@@ -24,18 +24,20 @@ def binarizer(dataframe, cat_cols):
     return dataframe;    
     
 # Convert categorical variables into numeric labels.
-def labelizer(dataframe, cat_cols):
+def labelizer(dataframe, ordinal_cols):
     #Create a dictionary of label encoder object for each column in the input dataset
     lblenc_dict = defaultdict(LabelEncoder);
     
     # Encoding each categorical variable
-    dataframe[cat_cols].apply(lambda x: lblenc_dict[x.name].fit(x)); 
+    dataframe[ordinal_cols].apply(lambda x: lblenc_dict[x.name].fit(x)); 
     return lblenc_dict;
     
-def descstats(dataset, ycol_cat):
-    dataset_prestats = dataset.describe(); # Overall statistics
-    dataset_grouped_prestats = dataset.groupby(ycol_cat).describe(); # statistics grouped on target variable categories    
-    return dataset_prestats, dataset_grouped_prestats;
+def descstats(dataset, ycol_cat=None):
+    if ycol_cat == None or len(ycol_cat)==0:    
+        dataset_prestats = dataset.describe(); # Overall statistics
+    else:
+        dataset_prestats = dataset.groupby(ycol_cat).describe(); # statistics grouped on target variable categories    
+    return dataset_prestats;
     
 # Plot histogram of the series and save as a ".png" file.
 def plotdetailedhistogram(dataset, x, y):
@@ -95,8 +97,12 @@ if __name__ == "__main__":
     ycol = "loss";    
     validation_size=0.2;
     irrelevant_cols=list([]);
-    prob_type = 2; # 0 for binary classification, 1 for multinomial classification, 2 for regression
-    quantiles=4; # variable for target column quantiles in case target variable is continuous(for grouped desriptive statistics creation)
+    # if there are ordinal columns among the covariates, define these here. These will be converted to numeric labels.
+    ordinal_cols=list([]);
+    # 0 for binary classification, 1 for multinomial classification, 2 for regression
+    prob_type = 2; 
+    # variable for target column quantiles in case target variable is continuous(for grouped desriptive statistics creation)
+    quantiles=4; 
     print 'Read completed.';
                         
     #########################################################################################     
@@ -150,10 +156,10 @@ if __name__ == "__main__":
     # Add new variables
     #<INSERT CODE HERE>
        
-    # Classify attributes into numeric and categorical
+    # Classify attributes into numeric, categorical and ordinal
     all_cols = list( set(covariates.columns) - set(['rowtype']) - set(idcol) );
-    numeric_cols = list( set(covariates._get_numeric_data().columns) - set(irrelevant_cols)  );
-    cat_cols = list( set(all_cols) - set(numeric_cols) - set(irrelevant_cols) );
+    numeric_cols = list( set(covariates._get_numeric_data().columns) - set(ordinal_cols) - set(irrelevant_cols)  );
+    cat_cols = list( set(all_cols) - set(numeric_cols) - set(ordinal_cols) - set(irrelevant_cols) );
     if idcol in numeric_cols:
         numeric_cols.remove(idcol);
     elif idcol in cat_cols:
@@ -161,39 +167,33 @@ if __name__ == "__main__":
     
     # Drop columns that are not to be used at all
     if len(irrelevant_cols) > 0:
-        covariates = covariates.drop(irrelevant_cols, axis=1);
+        covariates = covariates.drop(irrelevant_cols, axis=1);    
     
-    # Create a label encoder for all categorical covariates for later use.
     print 'Applying labelizer and binarizer for categorical columns...';
+    # Create a label encoder for all categorical covariates for later use.     
+    if len(ordinal_cols) > 0:
+        lblenc_dict = labelizer(covariates, ordinal_cols); 
+        # Apply labelizer to the categorical columns in the dataset
+        covariates = covariates[ordinal_cols].apply(lambda x: lblenc_dict[x.name].transform(x)).join(covariates[covariates.columns.difference(ordinal_cols)]);    
     # Apply binarizer to dataset for a one-hot encoding of dataset
-    lblenc_dict = labelizer(covariates, cat_cols); 
-    # Apply labelizer to the categorical columns in the dataset
-    covariates = covariates[cat_cols].apply(lambda x: lblenc_dict[x.name].transform(x)).join(covariates[covariates.columns.difference(cat_cols)]);    
-    covariates_bin = binarizer(covariates, cat_cols);
-    
+    if len(cat_cols) > 0:
+        covariates = binarizer(covariates, cat_cols);    
     
     # Create train, test and valid datasets for label and binary formats
-    Xlab_train = covariates.loc[covariates['rowtype'] == "TRAIN"].drop([idcol, "rowtype"], axis=1);
-    Xlab_valid = covariates.loc[covariates['rowtype'] == "VALID"].drop([idcol, "rowtype"], axis=1);
-    Xlab_test = covariates.loc[covariates['rowtype'] == "TEST"].drop([idcol, "rowtype"], axis=1);
-    Xbin_train = covariates_bin.loc[covariates_bin['rowtype'] == "TRAIN"].drop([idcol, "rowtype"], axis=1);
-    Xbin_valid = covariates_bin.loc[covariates_bin['rowtype'] == "VALID"].drop([idcol, "rowtype"], axis=1);
-    Xbin_test = covariates_bin.loc[covariates_bin['rowtype'] == "TEST"].drop([idcol, "rowtype"], axis=1);    
-    
-
-    # Descriptive Stats for numerical variables in pre-transformation dataset
-    print 'Collecting pre-transformation variable stats...'    ;
-    dataset_prestats, dataset_grouped_prestats = descstats(Xlab_train.join(ycat), ycat.name ); 
-    
-    # Post-missing value treatment dataset summaries.
+    X_train = covariates.loc[covariates['rowtype'] == "TRAIN"].drop([idcol, "rowtype"], axis=1);
+    X_valid = covariates.loc[covariates['rowtype'] == "VALID"].drop([idcol, "rowtype"], axis=1);
+    X_test = covariates.loc[covariates['rowtype'] == "TEST"].drop([idcol, "rowtype"], axis=1);    
+   
+    # Post transformation dataset summaries.
     print 'Collecting post-transformation variable stats...' ;
-    dataset_poststats, dataset_grouped_poststats = descstats(Xlab_train.join(ycat), ycat.name);  
+    descstats(X_train.join(ycat)).to_csv("../output/traindata_stats.csv");
+    descstats(X_train.join(ycat), ycat.name ).to_csv("../output/traindata_grouped_stats.csv"); 
     
     # Plot detailed histograms of variables    
     print 'Creating Histograms for numeric variables...';
     for col in numeric_cols:
         if not(col == ycol):
-            plotdetailedhistogram(Xlab_train.join(ycat), col, ycat.name );  
+            plotdetailedhistogram(X_train.join(ycat), col, ycat.name );  
     
     print 'Completed data processing.';
     
