@@ -5,8 +5,8 @@ from sklearn.pipeline import FeatureUnion;
 from pandas import DataFrame;
 
 
-pcacomp = 100;    # Number of PCA components to pick
-skbcomp = 5;    # Number of best original features to retain.
+pcacomp = 4;    # Number of PCA components to pick
+skbcomp = 129;    # Number of best original features to retain.
 
 # Select which input dataset to use- binarized or labelled.
 input_traindata = X_train;

@@ -1,5 +1,10 @@
 import xgboost;
 import itertools;
+from sklearn.metrics import mean_absolute_error;
+
+def evalerror(preds, dtrain):
+    labels = dtrain.get_label()
+    return 'mae', mean_absolute_error(np.exp(preds)-1, np.exp(labels))-1
 
 
 def expand_grid(data_dict):
@@ -12,15 +17,15 @@ input_traindata = output_traindata;
 input_validdata = output_validdata;
 input_testdata = output_testdata;
 param_grid = expand_grid(
-    {'eta': [0.01, 0.025, 0.05, 0.1],
-    'gamma': [0.5],
-    'max_depth': [3, 5, 7, 12],
-    'min_child_weight': [1, 3, 5, 7],
+    {'eta': [0.05,0.07, 0.1],
+    'gamma': [1],
+    'max_depth': [5, 7, 10],
+    'min_child_weight': [3, 5, 7],
     'subsample': [1],
     'colsample_bytree': [1],
     'lambda': [1],
     'alpha': [0],
-    'opt_rounds': [3000],
+    'opt_rounds': [1500],
     'early_stopping_rounds': [10],
     # Initialise model evaluation measures
     'train_measure': [0.0],
@@ -35,7 +40,7 @@ dtest = xgboost.DMatrix(data = output_testdata);
     
 for index, row in param_grid.iterrows():
     print 'Model number: '+ str(index);
-    params = {"objective": "reg:linear",
+    params = {
           "booster": "gbtree",
           "silent": 1,
           "eta": row['eta'],
@@ -49,6 +54,7 @@ for index, row in param_grid.iterrows():
           };   
     res = xgboost.cv(params=params,
                      dtrain = dtrain, 
+                     feval=evalerror,
                      num_boost_round=int(row['opt_rounds']), 
                      nfold=5,
                      metrics={'mae'}, 
@@ -67,7 +73,7 @@ for index, row in param_grid.iterrows():
 
 param_grid.to_csv("../output/xgboost_cv_output.csv");
 best_model_idx = param_grid["train_measure"].idxmin(axis=1);
-best_params = {"objective": "reg:linear",
+best_params = {
           "booster": "gbtree",
           "silent": 1,
           "eta": param_grid['eta'][best_model_idx],
@@ -82,6 +88,7 @@ best_params = {"objective": "reg:linear",
 
 xgb_model=xgboost.train(params = best_params,
               dtrain=dtrain, 
+              feval= evalerror,
               num_boost_round=param_grid['opt_rounds'][best_model_idx], 
               evals=[(dval, "valid")], 
               early_stopping_rounds=int(row['early_stopping_rounds']), 
@@ -89,6 +96,6 @@ xgb_model=xgboost.train(params = best_params,
 test_pred = pd.Series(data = xgb_model.predict(dtest), name=ycol)
 
     
-xgboost_output = pd.concat([pd.Series(covariates.loc[covariates['rowtype'] == "TEST"][idcol].reset_index()[idcol], name = idcol), test_pred], 
+xgboost_output = pd.concat([pd.Series(covariates.loc[covariates['rowtype'] == "TEST"][idcol].reset_index()[idcol], name = idcol), np.exp(test_pred)-1 ], 
            axis=1);
 xgboost_output.to_csv("../output/xgboost_pred_output.csv", index=False);
