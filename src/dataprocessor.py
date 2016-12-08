@@ -1,10 +1,11 @@
 import os;
 import numpy as np;
 import pandas as pd;
+from scipy.stats import boxcox, skew;
 from collections import defaultdict;
 from sklearn.model_selection import StratifiedKFold;
 from pandas import read_csv, get_dummies;
-from sklearn.preprocessing import LabelEncoder;
+from sklearn.preprocessing import LabelEncoder, MinMaxScaler;
 import matplotlib.mlab as mlab;
 import matplotlib.pyplot as plt;
 import matplotlib.cm as cm;
@@ -31,6 +32,22 @@ def labelizer(dataframe, ordinal_cols):
     # Encoding each categorical variable
     dataframe[ordinal_cols].apply(lambda x: lblenc_dict[x.name].fit(x)); 
     return lblenc_dict;
+
+# Convert numeric columns into 0-1 scaled version
+def minmaxscaler(dataframe, numeric_cols):
+    minmaxtnfm = MinMaxScaler(feature_range=(0, 1)).fit(dataframe[numeric_cols]); 
+    return minmaxtnfm;
+
+def boxcoxtransform(dataframe, numeric_feats):
+    lam=defaultdict(float)
+    skewed_feats = dataframe[numeric_feats].apply(lambda x: skew(x.dropna()))
+    skewed_feats = skewed_feats[skewed_feats > 0.25]
+    skewed_feats = skewed_feats.index
+
+    for feats in skewed_feats:
+        dataframe[feats] = dataframe[feats] + 1
+        dataframe[feats], lam[feats] = boxcox(dataframe[feats])
+    return dataframe, lam
     
 def descstats(dataset, ycol_cat=None):
     if ycol_cat == None or len(ycol_cat)==0:    
@@ -86,7 +103,7 @@ def plotdetailedhistogram(dataset, x, y, prefix=""):
 def categorical_barplots(dataset, x, y, prefix=""):
     gby_obj = dataset.groupby(y)[x].value_counts().sort_index().unstack();
     l = int(np.ceil(np.sqrt(len(gby_obj.columns))));
-    gby_obj.plot(kind="bar", subplots=True, layout=(l,l));
+    gby_obj.plot(kind="bar", subplots=True, layout=(l,l), legend=None);
     plt.savefig("../output/plots/" + prefix + "bar_" + x + ".png", dpi=500);        
     plt.close();
     
@@ -122,7 +139,7 @@ if __name__ == "__main__":
     print 'Collecting metadata about dataset...';
     
     # Classify attributes in train data into numeric, categorical and ordinal
-    all_cols = list( set(full_dataset.columns) - set(['rowtype']) - set(idcol) );
+    all_cols = list( set(full_dataset.columns) - set(['rowtype']) - set([idcol]) );
     numeric_cols = list( set(full_dataset._get_numeric_data().columns) - set(ordinal_cols) - set(irrelevant_cols)  );
     cat_cols = list( set(all_cols) - set(numeric_cols) - set(ordinal_cols) - set(irrelevant_cols) );
     if idcol in numeric_cols:
@@ -134,22 +151,7 @@ if __name__ == "__main__":
     print 'Splitting covariates and target...';
     y = full_dataset.loc[:, ycol];    
     X = full_dataset.drop([ycol], axis=1);
-
- 
-    #########################################################################################  
-    # DATA CLEANING AND TRANSFORMATION, DESCRIPTIVE STATS
-    print 'Applying cleaning rules and data transformations...';
     
-    # Treat missing values  
-    X = X.dropna(); 
-    
-    # Data Cleaning and Transformations
-    # Add new variables
-    # <PLACEHOLDER FOR NON-GENERIC CODE: INSERT CODE HERE>
-    y = np.log(1+y);   
-    # <PLACEHOLDER FOR NON-GENERIC CODE: INSERT CODE HERE>
-    
-    ##########################################################################################        
     # Set outcome variable to categorical if problem is classification, else to float64
     if prob_type == 0 or prob_type == 1:
         y = y.astype("category");
@@ -158,7 +160,16 @@ if __name__ == "__main__":
         y = y.astype("float64");  
         ycat = pd.qcut(y, quantiles); # Quantile based cuts for target column
         ycat.name = ycat.name + '_cat';
-        
+    
+    ##########################################################################################        
+    # <PLACEHOLDER FOR NON-GENERIC CODE: INSERT CODE HERE>
+    X = X.dropna(); 
+    y = np.log(200+y);
+    ycat = pd.qcut(y, quantiles);
+    ycat.name = ycat.name + '_cat';
+    # <PLACEHOLDER FOR NON-GENERIC CODE: INSERT CODE HERE>    
+    ########################################################################################## 
+    
     # Get first iteration of the k-fold indices, use it for the train-validation split
     # Other iterations may be used later  
     #print 'Splitting training data into training and validation sets...';
@@ -168,8 +179,7 @@ if __name__ == "__main__":
     # Scale the numeric columns if required.
     X = X.join(pd.Series('TRAIN', index=train_indices, name = 'rowtype').append(pd.Series('VALID', index=valid_indices, name = 'rowtype')));
     X_test=test_dataset.join(pd.Series('TEST', index=test_dataset.index, name = 'rowtype'));   
-    
-    
+
     # Combine train, valid and test covariates to create a consolidated covariate set
     covariates = pd.concat([X, X_test], axis=0, ignore_index=True);     
     # If id column does not exist, create one.
@@ -182,17 +192,17 @@ if __name__ == "__main__":
     
     # Drop columns that are not to be used at all
     if len(irrelevant_cols) > 0:
-        covariates = covariates.drop(irrelevant_cols, axis=1);    
-    
+        covariates = covariates.drop(irrelevant_cols, axis=1);   
+        
     print 'Applying labelizer and binarizer for categorical columns...';
     # Create a label encoder for all categorical covariates for later use.     
     if len(ordinal_cols) > 0:
         lblenc_dict = labelizer(covariates, ordinal_cols); 
         # Apply labelizer to the categorical columns in the dataset
-        covariates = covariates[ordinal_cols].apply(lambda x: lblenc_dict[x.name].transform(x)).join(covariates[covariates.columns.difference(ordinal_cols)]);    
+        covariates[ordinal_cols] = covariates[ordinal_cols].apply(lambda x: lblenc_dict[x.name].transform(x));    
     # Apply binarizer to dataset for a one-hot encoding of dataset
     if len(cat_cols) > 0:
-        covariates = binarizer(covariates, cat_cols);    
+        covariates = binarizer(covariates, cat_cols);  
     
     # Create train, test and valid datasets for label and binary formats
     X_train = covariates.loc[covariates['rowtype'] == "TRAIN"].drop([idcol, "rowtype"], axis=1);
@@ -200,22 +210,55 @@ if __name__ == "__main__":
     X_test = covariates.loc[covariates['rowtype'] == "TEST"].drop([idcol, "rowtype"], axis=1);    
     y_train = y.iloc[train_indices];
     y_valid = y.iloc[valid_indices];
-   
+    
+    ##########################################################################################        
+    # <PLACEHOLDER FOR NON-GENERIC CODE: INSERT CODE HERE>
+    numscaler = minmaxscaler(X_train, list(set(numeric_cols)-set([ycol])));
+    X_train[list(set(numeric_cols)-set([ycol]))] = numscaler.transform(X_train[list(set(numeric_cols)-set([ycol]))]);    
+    X_valid[list(set(numeric_cols)-set([ycol]))] = numscaler.transform(X_valid[list(set(numeric_cols)-set([ycol]))]);
+    X_test[list(set(numeric_cols)-set([ycol]))] = numscaler.transform(X_test[list(set(numeric_cols)-set([ycol]))]);
+    a, lam_vals = boxcoxtransform(X_train, list(set(numeric_cols)-set([ycol])));
+    for col in lam_vals:
+        X_train[col] = boxcox(X_train[col] +1, lam_vals[col]);
+        X_valid[col] = boxcox(X_valid[col]+1, lam_vals[col]);
+        X_test[col] = boxcox(X_test[col]+1, lam_vals[col]);
+    
+    # <PLACEHOLDER FOR NON-GENERIC CODE: INSERT CODE HERE>    
+    ##########################################################################################   
+    
     # Post transformation dataset summaries.
     print 'Collecting post-transformation variable stats...' ;
-    descstats(X_train.join(y).join(ycat)).to_csv("../output/traindata_stats.csv");
+    descstats(X_train.join(y_train).join(ycat)).to_csv("../output/traindata_stats.csv");
     descstats(X_train.join(ycat), ycat.name ).to_csv("../output/traindata_grouped_stats.csv"); 
     
     # Plot detailed histograms of variables    
     print 'Creating Histograms and bar plots for variables...';   
     for col in numeric_cols:
-        plotdetailedhistogram(X_train.join(y).join(ycat), col, ycat.name );
+        plotdetailedhistogram(X_train.join(y).join(ycat), col, ycat.name, "post_" );
+        # Add correlation plots with target variable
     for col in ordinal_cols:
         categorical_barplots(X_train.join(ycat), col, ycat.name);
     for col in cat_cols:
         categorical_barplots(X_train.join(ycat), col, ycat.name);
+        # Add chisquared plots with target variable
     
     print 'Completed data processing.';
+ 
+
+    
+
+  
+
+    
+       
+    
+    
+    
+    
+    
+    
+    
+    
     
 
     
